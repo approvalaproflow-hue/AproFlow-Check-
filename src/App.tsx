@@ -6879,22 +6879,7 @@ export function App() {
                         </div>
                       </form>
 
-                      <div className="relative my-6 flex items-center">
-                        <div className="flex-grow border-t border-slate-150"></div>
-                        <span className="flex-shrink mx-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Or secure quick entry with</span>
-                        <div className="flex-grow border-t border-slate-150"></div>
-                      </div>
 
-                      <div className="flex justify-center">
-                        <button
-                          type="button"
-                          onClick={() => handleConnectGitHub("login")}
-                          className="bg-white hover:bg-slate-50 text-slate-850 border border-slate-250 w-full px-6 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-2.5 cursor-pointer shadow-sm hover:shadow"
-                        >
-                          <Github className="h-4 w-4" />
-                          <span>Continue with GitHub</span>
-                        </button>
-                      </div>
                     </div>
                   </div>
                 )}
@@ -7097,28 +7082,7 @@ export function App() {
                           Register Employee Profile
                         </button>
 
-                        <div className="relative my-4 flex items-center">
-                          <div className="flex-grow border-t border-slate-150"></div>
-                          <span className="flex-shrink mx-4 text-[9px] font-bold text-slate-400 uppercase tracking-wider">Or Register With</span>
-                          <div className="flex-grow border-t border-slate-150"></div>
-                        </div>
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!regName.trim()) {
-                              setAppError("Please fill in your Full Name before registering via GitHub.");
-                              return;
-                            }
-                            const finalDept = regDepartment === "Others" ? customDepartment.trim() || "IT" : regDepartment;
-                            const stateParam = `register_employee:${verifiedEnterpriseCode}:${encodeURIComponent(regName.trim())}:${encodeURIComponent(finalDept)}:${regRole}`;
-                            handleConnectGitHub(stateParam);
-                          }}
-                          className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl text-xs shadow-md transition flex items-center justify-center space-x-2 cursor-pointer"
-                        >
-                          <Github className="h-4 w-4" />
-                          <span>Register & Connect with GitHub</span>
-                        </button>
                       </form>
                     ) : (
                       <div className="p-6 text-center text-slate-400 text-xs font-medium bg-slate-50/50 border border-dashed border-slate-200 rounded-xl">
@@ -7211,35 +7175,7 @@ export function App() {
                         Create Administration Workspace & Generate Company Code
                       </button>
 
-                      <div className="relative my-4 flex items-center">
-                        <div className="flex-grow border-t border-slate-150"></div>
-                        <span className="flex-shrink mx-4 text-[9px] font-bold text-slate-400 uppercase tracking-wider">Or Onboard Workspace With</span>
-                        <div className="flex-grow border-t border-slate-150"></div>
-                      </div>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!adminRegEnterpriseName.trim()) {
-                            setAppError("Please fill in your Enterprise / Company Name before registering via GitHub.");
-                            return;
-                          }
-                          if (!adminRegName.trim()) {
-                            setAppError("Please fill in your Company Administrator name before registering via GitHub.");
-                            return;
-                          }
-                          if (!adminRegUsername.trim()) {
-                            setAppError("Please define an administrative username before registering via GitHub.");
-                            return;
-                          }
-                          const stateParam = `register_admin:${encodeURIComponent(adminRegEnterpriseName.trim())}:${encodeURIComponent(adminRegName.trim())}:${encodeURIComponent(adminRegUsername.trim())}`;
-                          handleConnectGitHub(stateParam);
-                        }}
-                        className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl text-xs shadow-md transition flex items-center justify-center space-x-2 cursor-pointer"
-                      >
-                        <Github className="h-4 w-4" />
-                        <span>Register Administrator with GitHub</span>
-                      </button>
                     </form>
                   </div>
                 )}
