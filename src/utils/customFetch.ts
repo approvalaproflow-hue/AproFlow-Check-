@@ -8,8 +8,8 @@ export const customFetch = (input: RequestInfo | URL, init?: RequestInit): Promi
       // Connect specifically to the remote secure production backend container
       const backendUrl = "https://ais-pre-uqgotynwpn7qsbyjr4rsar-880186503088.asia-southeast1.run.app";
       const targetUrl = `${backendUrl}${input}`;
-      return window.fetch(targetUrl, init);
+      return globalThis.fetch(targetUrl, init);
     }
   }
-  return window.fetch(input, init);
+  return globalThis.fetch(input, init);
 };
