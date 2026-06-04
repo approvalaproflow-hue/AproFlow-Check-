@@ -1,0 +1,8 @@
+{
+  "name": "AproFlow, Back Up ",
+  "description": "An enterprise-grade systems dashboard for digitizing, reviewing, and approving travel itineraries, expense claims, conveyance, and logging reimbursements in INR (₹).",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

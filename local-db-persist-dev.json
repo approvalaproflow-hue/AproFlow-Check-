@@ -1,0 +1,241 @@
+{
+  "users": [
+    {
+      "id": "admin-id",
+      "email": "adminapproval@gmail.com",
+      "name": "System Super Admin",
+      "employeeCode": "adminapproval",
+      "doj": "2020-01-01",
+      "department": "Management",
+      "role": "superadmin",
+      "status": "active",
+      "enterpriseCode": "2026",
+      "enterpriseName": "PROFLOW ENTERPRISE",
+      "password": "Admin123#"
+    },
+    {
+      "id": "admin-2026",
+      "email": "admin2026@gmail.com",
+      "name": "MB Executive Admin",
+      "employeeCode": "admin2026",
+      "doj": "2026-01-01",
+      "department": "Management",
+      "role": "admin",
+      "status": "active",
+      "enterpriseCode": "2026",
+      "enterpriseName": "PROFLOW ENTERPRISE",
+      "password": "MB2026"
+    },
+    {
+      "id": "emp-priya",
+      "email": "priya@gmail.com",
+      "name": "Priya Sharma",
+      "employeeCode": "EMP-010",
+      "doj": "2022-04-10",
+      "department": "Inspections",
+      "role": "employee",
+      "status": "active",
+      "enterpriseCode": "2026"
+    },
+    {
+      "id": "emp-rahul",
+      "email": "rahul@gmail.com",
+      "name": "Rahul Verma",
+      "employeeCode": "EMP-011",
+      "doj": "2021-08-15",
+      "department": "Sales",
+      "role": "employee",
+      "status": "active",
+      "enterpriseCode": "2026"
+    },
+    {
+      "id": "emp-amit",
+      "email": "amit@gmail.com",
+      "name": "Amit Patel",
+      "employeeCode": "EMP-012",
+      "doj": "2023-01-10",
+      "department": "Operations",
+      "role": "employee",
+      "status": "active",
+      "enterpriseCode": "2026"
+    }
+  ],
+  "requests": [
+    {
+      "id": "PR-2026-001",
+      "userId": "emp-priya",
+      "employeeName": "Priya Sharma",
+      "projectName": "Q2 Field Survey Equipment",
+      "submissionDate": "2026-05-18",
+      "items": [
+        {
+          "id": "item-1",
+          "description": "Laser Distance Meter Pro",
+          "quantity": 2,
+          "unitPrice": 12500,
+          "taxPercent": 18,
+          "total": 29500
+        },
+        {
+          "id": "item-2",
+          "description": "Waterproof Safety Vests & Helmets",
+          "quantity": 10,
+          "unitPrice": 1500,
+          "taxPercent": 5,
+          "total": 15750
+        }
+      ],
+      "totalBudget": 45250,
+      "category": "Equipment",
+      "status": "Approved",
+      "lastUpdated": "2026-05-19T10:30:00Z",
+      "totals": {
+        "netTotal": 40000,
+        "cgst": 2625,
+        "sgst": 2625,
+        "adjustments": 0,
+        "grandTotal": 45250
+      },
+      "attachments": [
+        "survey_specs_v3.pdf"
+      ],
+      "comments": [
+        {
+          "id": "c-101",
+          "userId": "admin-2026",
+          "userName": "MB Executive Admin",
+          "role": "admin",
+          "text": "Equipment spec verified. Project starts next month, order is approved.",
+          "timestamp": "2026-05-19T10:30:00Z"
+        }
+      ],
+      "approvalDetails": {
+        "approvedBy": "MB Executive Admin",
+        "approvalDate": "2026-05-19",
+        "adminRemarks": "Verified with department head, approved for field operation."
+      },
+      "enterpriseCode": "2026"
+    },
+    {
+      "id": "PR-2026-002",
+      "userId": "emp-rahul",
+      "employeeName": "Rahul Verma",
+      "projectName": "Sales Pitch Collateral Printing",
+      "submissionDate": "2026-05-20",
+      "items": [
+        {
+          "id": "item-3",
+          "description": "Corporate Brochures & Rollup Banners",
+          "quantity": 150,
+          "unitPrice": 180,
+          "taxPercent": 12,
+          "total": 30240
+        }
+      ],
+      "totalBudget": 30240,
+      "category": "Marketing",
+      "status": "Pending",
+      "lastUpdated": "2026-05-20T14:15:00Z",
+      "totals": {
+        "netTotal": 27000,
+        "cgst": 1620,
+        "sgst": 1620,
+        "adjustments": 0,
+        "grandTotal": 30240
+      },
+      "attachments": [],
+      "comments": [],
+      "approvalDetails": {},
+      "enterpriseCode": "2026"
+    },
+    {
+      "id": "PR-2026-003",
+      "userId": "emp-amit",
+      "employeeName": "Amit Patel",
+      "projectName": "Server Room UPS Replacement",
+      "submissionDate": "2026-05-21",
+      "items": [
+        {
+          "id": "item-4",
+          "description": "3kVA Smart Online UPS System",
+          "quantity": 1,
+          "unitPrice": 55000,
+          "taxPercent": 18,
+          "total": 64900
+        }
+      ],
+      "totalBudget": 64900,
+      "category": "IT Infrastructure",
+      "status": "Queried",
+      "lastUpdated": "2026-05-22T08:00:00Z",
+      "totals": {
+        "netTotal": 55000,
+        "cgst": 4950,
+        "sgst": 4950,
+        "adjustments": 0,
+        "grandTotal": 64900
+      },
+      "attachments": [
+        "ups_quotation.pdf"
+      ],
+      "comments": [
+        {
+          "id": "c-102",
+          "userId": "admin-2026",
+          "userName": "MB Executive Admin",
+          "role": "admin",
+          "text": "Can we get another competitor quote for the 3kVA unit before proceeding? Price looks a bit premium.",
+          "timestamp": "2026-05-22T08:00:00Z"
+        }
+      ],
+      "approvalDetails": {},
+      "enterpriseCode": "2026"
+    }
+  ],
+  "auditLogs": [
+    {
+      "id": "log-initial",
+      "userId": "system",
+      "userName": "System Server",
+      "action": "INIT_SEED",
+      "timestamp": "2026-06-03T10:04:14.376Z",
+      "details": "Database initialized with secure seeds.",
+      "enterpriseCode": "2026"
+    },
+    {
+      "id": "log-seed-appr",
+      "userId": "admin-2026",
+      "userName": "MB Executive Admin",
+      "action": "REQS_APPROVE",
+      "timestamp": "2026-05-19T10:30:00Z",
+      "details": "Approved field survey equipment PR-2026-001 worth ₹45,250",
+      "enterpriseCode": "2026"
+    }
+  ],
+  "notifications": [
+    {
+      "id": "notif-seed-1",
+      "userId": "emp-priya",
+      "title": "Purchase Request Approved",
+      "message": "PR-2026-001 for Q2 Field Survey Equipment was approved by Admin.",
+      "timestamp": "2026-05-19T10:30:00Z",
+      "read": false,
+      "type": "success",
+      "enterpriseCode": "2026"
+    },
+    {
+      "id": "notif-seed-2",
+      "userId": "emp-amit",
+      "title": "Clarification Requested",
+      "message": "Admin posted a query on PR-2026-003: Please fetch another vendor quote.",
+      "timestamp": "2026-05-22T08:00:00Z",
+      "read": false,
+      "type": "warning",
+      "enterpriseCode": "2026"
+    }
+  ],
+  "numberingSettingsConfigs": [],
+  "commissions": [],
+  "creditCards": [],
+  "savedPdfs": []
+}

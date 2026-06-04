@@ -1,0 +1,174 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Represents an Administrator or Employee in the spend manager system.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier of the user" },
+        "email": { "type": "string", "format": "email", "description": "Email address of the user" },
+        "name": { "type": "string", "description": "Full name of the user" },
+        "employeeCode": { "type": "string", "description": "Employee login username or unique code" },
+        "doj": { "type": "string", "description": "Date of joining in YYYY-MM-DD" },
+        "department": { "type": "string", "description": "Corporate department of the user" },
+        "role": { "type": "string", "enum": ["admin", "employee"], "description": "Security access role of the user" },
+        "status": { "type": "string", "enum": ["active", "inactive"], "description": "Whether the user's account is currently enabled" },
+        "enterpriseCode": { "type": "string", "description": "4-digit corporate isolation code" },
+        "password": { "type": "string", "description": "Hashed or cleartext credentials password" },
+        "googleUser": { "type": "boolean", "description": "Whether the user is signed in or registered via Google" }
+      },
+      "required": ["id", "email", "name", "employeeCode", "role", "status", "enterpriseCode"]
+    },
+    "RequestForm": {
+      "title": "RequestForm",
+      "description": "Represents a purchase or petty cash expenditure approval request.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique purchase request reference code" },
+        "userId": { "type": "string", "description": "ID of the employee filing the request" },
+        "employeeName": { "type": "string", "description": "Name of the employee filing the request" },
+        "projectName": { "type": "string", "description": "Project reference or spend intent" },
+        "submissionDate": { "type": "string", "description": "Date of form submission in YYYY-MM-DD" },
+        "items": { "type": "array", "description": "List of line item specifications" },
+        "totalBudget": { "type": "number", "description": "Gross budget requested (inclusive of taxes)" },
+        "category": { "type": "string", "description": "Category for classification" },
+        "status": { "type": "string", "enum": ["Draft", "Pending", "Approved", "Rejected", "Queried"], "description": "Approval progression state" },
+        "lastUpdated": { "type": "string", "format": "date-time", "description": "ISO timestamp of last modification" },
+        "totals": { "type": "object", "description": "Aggregations for net total, taxes, adjustments" },
+        "attachments": { "type": "array", "description": "File attachments linked to request" },
+        "comments": { "type": "array", "description": "Thread comments and conversation" },
+        "approvalDetails": { "type": "object", "description": "Admin review comments and status details" },
+        "enterpriseCode": { "type": "string", "description": "4-digit corporate isolation code" }
+      },
+      "required": ["id", "userId", "employeeName", "projectName", "submissionDate", "items", "totalBudget", "category", "status", "lastUpdated", "enterpriseCode"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "System event audit trail record for compliance.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique audit record ID" },
+        "userId": { "type": "string", "description": "ID of the user who performed the action" },
+        "userName": { "type": "string", "description": "Name of the user who performed the action" },
+        "action": { "type": "string", "description": "Type of event trigger" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "ISO timestamp of event" },
+        "details": { "type": "string", "description": "Description of action" },
+        "enterpriseCode": { "type": "string", "description": "4-digit corporate isolation code" }
+      },
+      "required": ["id", "userId", "userName", "action", "timestamp", "details", "enterpriseCode"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Notification message directed to a specific user.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique notification ID" },
+        "userId": { "type": "string", "description": "Filer or admin recipient user ID" },
+        "title": { "type": "string", "description": "Title text of the notification card" },
+        "message": { "type": "string", "description": "Full notification message body" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "ISO timestamp of notification" },
+        "read": { "type": "boolean", "description": "Whether the notification has been read by the user" },
+        "type": { "type": "string", "enum": ["info", "success", "warning"], "description": "Visual decoration class of notification" },
+        "enterpriseCode": { "type": "string", "description": "4-digit corporate isolation code" }
+      },
+      "required": ["id", "userId", "title", "message", "timestamp", "read", "type", "enterpriseCode"]
+    },
+    "Commission": {
+      "title": "Commission",
+      "description": "Represents employee commission allocations and payouts.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique Commission reference code COM-xxxx" },
+        "employeeId": { "type": "string", "description": "Unique identifier of the employee earning commission" },
+        "employeeName": { "type": "string", "description": "Full name of the employee" },
+        "department": { "type": "string", "description": "Corporate department of the user" },
+        "totalAmount": { "type": "number", "description": "Total commission allocated amount" },
+        "purpose": { "type": "string", "description": "Purpose details or justification of the commission" },
+        "dateMonth": { "type": "string", "description": "The targeted payouts month Year-Month format" },
+        "notes": { "type": "string", "description": "Additional remarks or comments" },
+        "status": { "type": "string", "enum": ["Pending", "Partially Paid", "Paid", "Cancelled"], "description": "Payout classification state" },
+        "enterpriseCode": { "type": "string", "description": "4-digit enterprise code" },
+        "createdAt": { "type": "string", "description": "ISO creation datetime" },
+        "createdBy": { "type": "string", "description": "Author administrative name" }
+      },
+      "required": ["id", "employeeName", "totalAmount", "purpose", "status", "enterpriseCode"]
+    },
+    "NumberingSettingsConfig": {
+      "title": "NumberingSettingsConfig",
+      "description": "Customized prefix counters configuration mappings of the enterprise.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Id mapping or code identifier matching enterprise profile" },
+        "enterpriseCode": { "type": "string", "description": "4-digit corporate isolation code" },
+        "settings": { "type": "object", "description": "Independent prefix settings config objects" },
+        "counters": { "type": "object", "description": "Sequence numbering counters values" }
+      },
+      "required": ["id", "enterpriseCode", "settings", "counters"]
+    },
+    "CreditCard": {
+      "title": "CreditCard",
+      "description": "Corporate Credit Card master registrations.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique card registration ID" },
+        "cardName": { "type": "string", "description": "Card Name or Issuer Bank Name" },
+        "cardholderName": { "type": "string", "description": "Full name of corporate cardholder" },
+        "last4Digits": { "type": "string", "description": "Last 4 digits of the card number" },
+        "department": { "type": "string", "description": "Optional corporate department assignment" },
+        "status": { "type": "string", "enum": ["Active", "Inactive"], "description": "Current authorization state" },
+        "enterpriseCode": { "type": "string", "description": "4-digit corporate isolation code" }
+      },
+      "required": ["id", "cardName", "cardholderName", "last4Digits", "status", "enterpriseCode"]
+    },
+    "SavedPdf": {
+      "title": "SavedPdf",
+      "description": "Represents a permanently archived generated corporate PDF document.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique PDF document ID" },
+        "requestId": { "type": "string", "description": "The associated request/voucher form ID" },
+        "fileName": { "type": "string", "description": "User-facing filename e.g. Claim_CV-12.pdf" },
+        "fileContent": { "type": "string", "description": "Base64 data URL encoded PDF document bytes" },
+        "category": { "type": "string", "description": "Doc classification category" },
+        "enterpriseCode": { "type": "string", "description": "4-digit corporate isolation code" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "ISO timestamp when originally archived" },
+        "createdBy": { "type": "string", "description": "Personnel username or identifier who initiated file generation" }
+      },
+      "required": ["id", "requestId", "fileName", "fileContent", "enterpriseCode", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Collection of all system users (employees & admins) partitioned by user ID."
+    },
+    "/requests/{requestId}": {
+      "schema": "RequestForm",
+      "description": "Purchase and petty cash requests partitioned by request ID."
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Compliance operations logs partitioned by log ID."
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "Real-time user workflow alerts partitioned by notification ID."
+    },
+    "/commissions/{commissionId}": {
+      "schema": "Commission",
+      "description": "Allocation of commission payouts partitioned by commission ID."
+    },
+    "/numberingSettingsConfigs/{configId}": {
+      "schema": "NumberingSettingsConfig",
+      "description": "Modular configuration keys for enterprise numbering sequences."
+    },
+    "/creditCards/{cardId}": {
+      "schema": "CreditCard",
+      "description": "Information on registered corporate credit cards partitioned by card ID."
+    },
+    "/savedPdfs/{pdfId}": {
+      "schema": "SavedPdf",
+      "description": "Permanently stored client-generated PDF attachments partitioned by PDF document ID."
+    }
+  }
+}

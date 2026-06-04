@@ -1,0 +1,230 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Safety Net (Zero-Trust Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper Primitives
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Validation Blueprints
+    function isValidUser(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.email is string && data.email.size() <= 200
+        && data.name is string && data.name.size() <= 200
+        && data.employeeCode is string && data.employeeCode.size() <= 100
+        && (data.role == 'admin' || data.role == 'employee' || data.role == 'superadmin')
+        && (data.status == 'active' || data.status == 'inactive')
+        && data.enterpriseCode is string && data.enterpriseCode.size() <= 10;
+    }
+
+    function isValidRequestForm(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.employeeName is string && data.employeeName.size() <= 200
+        && data.projectName is string && data.projectName.size() <= 300
+        && data.submissionDate is string && data.submissionDate.size() <= 50
+        && data.totalBudget is number
+        && data.category is string && data.category.size() <= 100
+        && (data.status == 'Draft' || data.status == 'Pending' || data.status == 'Approved' || data.status == 'Rejected' || data.status == 'Queried')
+        && data.enterpriseCode is string && data.enterpriseCode.size() <= 10;
+    }
+
+    function isValidAuditLog(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.userName is string && data.userName.size() <= 200
+        && data.action is string && data.action.size() <= 100
+        && data.timestamp is string && data.timestamp.size() <= 50
+        && data.details is string && data.details.size() <= 2000
+        && data.enterpriseCode is string && data.enterpriseCode.size() <= 10;
+    }
+
+    function isValidNotification(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.title is string && data.title.size() <= 200
+        && data.message is string && data.message.size() <= 2000
+        && data.timestamp is string && data.timestamp.size() <= 50
+        && data.read is bool
+        && (data.type == 'info' || data.type == 'success' || data.type == 'warning')
+        && data.enterpriseCode is string && data.enterpriseCode.size() <= 10;
+    }
+
+    function isValidCommission(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.employeeName is string && data.employeeName.size() <= 200
+        && data.totalAmount is number
+        && data.purpose is string && data.purpose.size() <= 500
+        && (data.status == 'Pending' || data.status == 'Partially Paid' || data.status == 'Paid' || data.status == 'Cancelled')
+        && data.enterpriseCode is string && data.enterpriseCode.size() <= 10;
+    }
+
+    function isValidNumberingSettingsConfig(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.enterpriseCode is string && data.enterpriseCode.size() <= 10
+        && data.settings is map
+        && data.counters is map;
+    }
+
+    function isValidCreditCard(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.cardName is string && data.cardName.size() <= 200
+        && data.cardholderName is string && data.cardholderName.size() <= 200
+        && data.last4Digits is string && data.last4Digits.size() <= 10
+        && (data.status == 'Active' || data.status == 'Inactive')
+        && data.enterpriseCode is string && data.enterpriseCode.size() <= 10;
+    }
+
+    function isValidSavedPdf(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.requestId is string && data.requestId.size() <= 128
+        && data.fileName is string && data.fileName.size() <= 500
+        && data.fileContent is string && data.fileContent.size() <= 20000000
+        && data.enterpriseCode is string && data.enterpriseCode.size() <= 10;
+    }
+
+    // Collection Security Rules
+
+    // 1. Users
+    match /users/{userId} {
+      allow read: if true;
+      allow create, update: if isValidId(userId) && isValidUser(request.resource.data);
+      allow delete: if false;
+    }
+    match /dev_users/{userId} {
+      allow read: if true;
+      allow create, update: if isValidId(userId) && isValidUser(request.resource.data);
+      allow delete: if false;
+    }
+    match /prod_users/{userId} {
+      allow read: if true;
+      allow create, update: if isValidId(userId) && isValidUser(request.resource.data);
+      allow delete: if false;
+    }
+
+    // 2. Requests
+    match /requests/{requestId} {
+      allow read: if true;
+      allow create, update: if isValidId(requestId) && isValidRequestForm(request.resource.data);
+      allow delete: if false;
+    }
+    match /dev_requests/{requestId} {
+      allow read: if true;
+      allow create, update: if isValidId(requestId) && isValidRequestForm(request.resource.data);
+      allow delete: if false;
+    }
+    match /prod_requests/{requestId} {
+      allow read: if true;
+      allow create, update: if isValidId(requestId) && isValidRequestForm(request.resource.data);
+      allow delete: if false;
+    }
+
+    // 3. Audit Logs
+    match /auditLogs/{logId} {
+      allow read: if true;
+      allow create, update: if isValidId(logId) && isValidAuditLog(request.resource.data);
+      allow delete: if false;
+    }
+    match /dev_auditLogs/{logId} {
+      allow read: if true;
+      allow create, update: if isValidId(logId) && isValidAuditLog(request.resource.data);
+      allow delete: if false;
+    }
+    match /prod_auditLogs/{logId} {
+      allow read: if true;
+      allow create, update: if isValidId(logId) && isValidAuditLog(request.resource.data);
+      allow delete: if false;
+    }
+
+    // 4. Notifications
+    match /notifications/{notificationId} {
+      allow read: if true;
+      allow create, update: if isValidId(notificationId) && isValidNotification(request.resource.data);
+      allow delete: if false;
+    }
+    match /dev_notifications/{notificationId} {
+      allow read: if true;
+      allow create, update: if isValidId(notificationId) && isValidNotification(request.resource.data);
+      allow delete: if false;
+    }
+    match /prod_notifications/{notificationId} {
+      allow read: if true;
+      allow create, update: if isValidId(notificationId) && isValidNotification(request.resource.data);
+      allow delete: if false;
+    }
+
+    // 5. Commissions
+    match /commissions/{commissionId} {
+      allow read: if true;
+      allow create, update: if isValidId(commissionId) && isValidCommission(request.resource.data);
+      allow delete: if false;
+    }
+    match /dev_commissions/{commissionId} {
+      allow read: if true;
+      allow create, update: if isValidId(commissionId) && isValidCommission(request.resource.data);
+      allow delete: if false;
+    }
+    match /prod_commissions/{commissionId} {
+      allow read: if true;
+      allow create, update: if isValidId(commissionId) && isValidCommission(request.resource.data);
+      allow delete: if false;
+    }
+
+    // 6. Numbering Settings Configs
+    match /numberingSettingsConfigs/{configId} {
+      allow read: if true;
+      allow create, update: if isValidId(configId) && isValidNumberingSettingsConfig(request.resource.data);
+      allow delete: if false;
+    }
+    match /dev_numberingSettingsConfigs/{configId} {
+      allow read: if true;
+      allow create, update: if isValidId(configId) && isValidNumberingSettingsConfig(request.resource.data);
+      allow delete: if false;
+    }
+    match /prod_numberingSettingsConfigs/{configId} {
+      allow read: if true;
+      allow create, update: if isValidId(configId) && isValidNumberingSettingsConfig(request.resource.data);
+      allow delete: if false;
+    }
+
+    // 7. Credit Cards
+    match /creditCards/{cardId} {
+      allow read: if true;
+      allow create, update: if isValidId(cardId) && isValidCreditCard(request.resource.data);
+      allow delete: if false;
+    }
+    match /dev_creditCards/{cardId} {
+      allow read: if true;
+      allow create, update: if isValidId(cardId) && isValidCreditCard(request.resource.data);
+      allow delete: if false;
+    }
+    match /prod_creditCards/{cardId} {
+      allow read: if true;
+      allow create, update: if isValidId(cardId) && isValidCreditCard(request.resource.data);
+      allow delete: if false;
+    }
+
+    // 8. Saved PDFs
+    match /savedPdfs/{pdfId} {
+      allow read: if true;
+      allow create, update: if isValidId(pdfId) && isValidSavedPdf(request.resource.data);
+      allow delete: if false;
+    }
+    match /dev_savedPdfs/{pdfId} {
+      allow read: if true;
+      allow create, update: if isValidId(pdfId) && isValidSavedPdf(request.resource.data);
+      allow delete: if false;
+    }
+    match /prod_savedPdfs/{pdfId} {
+      allow read: if true;
+      allow create, update: if isValidId(pdfId) && isValidSavedPdf(request.resource.data);
+      allow delete: if false;
+    }
+  }
+}
