@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { CreditCard, User } from "../types.ts";
 import { Plus, Trash2, Eye, HelpCircle, Check, Search, AlertCircle, RefreshCw } from "lucide-react";
+import { customFetch } from "../utils/customFetch";
+
+const fetch = customFetch;
 
 interface CreditCardMasterProps {
   apiHeaders: any;

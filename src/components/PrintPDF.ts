@@ -1,6 +1,9 @@
 import { jsPDF } from "jspdf";
 import { RequestForm } from "../types";
 import { PDFDocument } from "pdf-lib";
+import { customFetch } from "../utils/customFetch";
+
+const fetch = customFetch;
 
 export const getImageDimensions = (dataUrl: string): Promise<{ width: number; height: number }> => {
   return new Promise((resolve) => {

@@ -57,6 +57,16 @@ try {
 const app = express();
 const PORT = 3000;
 
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-requested-with");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
@@ -1537,6 +1547,410 @@ app.post("/api/auth/google", async (req, res) => {
     db.auditLogs.shift();
     db.notifications.shift();
     res.status(500).json({ error: "Failed to save Google registration in database directly. Details: " + err.message });
+  }
+});
+
+// --- GITHUB OAUTH WORKSPACE API INTEGRATION ---
+
+function getGithubRedirectUri(req: any) {
+  const appUrl = (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+  return `${appUrl}/auth/github/callback`;
+}
+
+// Endpoint 1: Generate GitHub OAuth authorize URL
+app.get("/api/auth/github/url", (req, res) => {
+  const clientId = process.env.GITHUB_CLIENT_ID;
+  if (!clientId) {
+    return res.status(500).json({ error: "GITHUB_CLIENT_ID is not configured in the application server. Ask the system administrator to add it under Secrets." });
+  }
+
+  const { state } = req.query; // 'login' or 'register_employee:...' or 'register_admin:...'
+  const redirectUri = getGithubRedirectUri(req);
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    scope: "read:user user:email",
+    state: String(state || "login")
+  });
+
+  const authUrl = `https://github.com/login/oauth/authorize?${params.toString()}`;
+  res.json({ url: authUrl });
+});
+
+// Endpoint 2: GitHub Callback Handler
+app.get(["/auth/github/callback", "/auth/github/callback/"], async (req, res) => {
+  const { code, state } = req.query;
+  const clientId = process.env.GITHUB_CLIENT_ID;
+  const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+
+  const sendFailure = (errorMsg: string) => {
+    res.send(`
+      <html>
+        <head>
+          <title>Authentication Failed</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+            .card { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); text-align: center; max-width: 400px; border: 1px solid #e2e8f0; }
+            h2 { color: #ef4444; margin-top: 0; }
+            p { font-size: 14px; line-height: 1.5; color: #64748b; }
+            button { background-color: #0f172a; color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 1rem; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h2>Authentication Failed</h2>
+            <p>${errorMsg}</p>
+            <script>
+              if (window.opener) {
+                window.opener.postMessage({ type: "OAUTH_AUTH_FAILURE", error: ${JSON.stringify(errorMsg)} }, "*");
+                setTimeout(() => window.close(), 4000);
+              }
+            </script>
+            <button onclick="window.close()">Close Window</button>
+          </div>
+        </body>
+      </html>
+    `);
+  };
+
+  if (!code) {
+    return sendFailure("Authorization code missing from GitHub redirect.");
+  }
+
+  if (!clientId || !clientSecret) {
+    return sendFailure("GitHub OAuth client credentials (ID or SECRET) are not configured on the server. Please add GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in Settings > Secrets.");
+  }
+
+  try {
+    // 1. Exchange OAuth code for GitHub access token
+    const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      body: JSON.stringify({
+        client_id: clientId,
+        client_secret: clientSecret,
+        code,
+        redirect_uri: getGithubRedirectUri(req)
+      })
+    });
+
+    if (!tokenResponse.ok) {
+      const errorText = await tokenResponse.text();
+      return sendFailure("GitHub token exchange failed: " + errorText);
+    }
+
+    const tokenData: any = await tokenResponse.json();
+    if (tokenData.error) {
+      return sendFailure(`GitHub token exchange error: ${tokenData.error_description || tokenData.error}`);
+    }
+
+    const accessToken = tokenData.access_token;
+    if (!accessToken) {
+      return sendFailure("No access token returned from GitHub.");
+    }
+
+    // 2. Fetch User Profile
+    const profileResponse = await fetch("https://api.github.com/user", {
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "User-Agent": "Aproflow-Auth-Applet",
+        "Accept": "application/json"
+      }
+    });
+
+    if (!profileResponse.ok) {
+      return sendFailure("Failed to retrieve user profile from GitHub API.");
+    }
+
+    const profileData: any = await profileResponse.json();
+    const githubUsername = profileData.login;
+    const githubName = profileData.name || profileData.login;
+    let githubEmail = profileData.email;
+
+    // 3. Fallback: Fetch emails if email is null/private
+    if (!githubEmail) {
+      const emailResponse = await fetch("https://api.github.com/user/emails", {
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "User-Agent": "Aproflow-Auth-Applet",
+          "Accept": "application/json"
+        }
+      });
+
+      if (emailResponse.ok) {
+        const emailsList: any = await emailResponse.json();
+        if (Array.isArray(emailsList) && emailsList.length > 0) {
+          const primaryEmailObj = emailsList.find((e: any) => e.primary && e.verified) || emailsList.find((e: any) => e.primary) || emailsList[0];
+          githubEmail = primaryEmailObj ? primaryEmailObj.email : null;
+        }
+      }
+    }
+
+    if (!githubEmail) {
+      return sendFailure("Your GitHub account doesn't expose a verified email address. Please make sure you have a verified email on GitHub.");
+    }
+
+    const emailLower = githubEmail.toLowerCase().trim();
+    const db = readDatabase();
+
+    // 4. Handle State Actions (login or onboarding)
+    const stateStr = String(state || "login");
+    let userToSignIn: User | null = null;
+
+    if (stateStr.startsWith("register_employee:")) {
+      const parts = stateStr.split(":");
+      const enterpriseCode = parts[1];
+      const decodedName = decodeURIComponent(parts[2] || "");
+      const decodedDept = decodeURIComponent(parts[3] || "");
+      const roleStr = parts[4] || "employee";
+
+      if (!enterpriseCode || enterpriseCode.length !== 4) {
+        return sendFailure("A valid 4-digit Enterprise Code is required to onboard via GitHub.");
+      }
+
+      // Check if enterprise exists
+      const matchedAdmin = db.users.find((u: User) => u.role === "admin" && String(u.enterpriseCode) === enterpriseCode);
+      const isSystemAdmin = emailLower === "adminapproval@gmail.com";
+      if (!matchedAdmin && !isSystemAdmin) {
+        return sendFailure(`Enterprise Code "${enterpriseCode}" does not match any active companies registered in our workspace.`);
+      }
+
+      // Check duplicates in that workspace
+      let existingEmployee = db.users.find((u: User) => u.email.toLowerCase() === emailLower && u.enterpriseCode === enterpriseCode);
+      if (existingEmployee) {
+        if (existingEmployee.status === "inactive") {
+          return sendFailure("Your employee account has been deactivated. Please contact your company administrator.");
+        }
+        userToSignIn = existingEmployee;
+      } else {
+        // Create new employee
+        const randomSuffix = Math.floor(100 + Math.random() * 900);
+        const generatedCode = "EMP-GH" + randomSuffix;
+
+        const newUser: User = {
+          id: "emp-" + Date.now().toString(),
+          email: emailLower,
+          name: decodedName || githubName,
+          employeeCode: generatedCode,
+          doj: new Date().toISOString().split("T")[0],
+          department: decodedDept || "IT",
+          role: roleStr as UserRole,
+          status: "active",
+          password: "",
+          enterpriseCode: enterpriseCode
+        };
+
+        db.users.push(newUser);
+
+        // Audit
+        const audit = {
+          id: "log-gh" + Math.random().toString(36).substring(2, 11),
+          userId: newUser.id,
+          userName: newUser.name,
+          action: "USER_SIGNUP_GITHUB",
+          timestamp: new Date().toISOString(),
+          details: `Registered via GitHub Authentication. Assigned System code: ${newUser.employeeCode}`,
+          enterpriseCode: enterpriseCode
+        };
+        db.auditLogs.unshift(audit);
+
+        // Notify parent admin
+        if (matchedAdmin) {
+          const adminNotif = {
+            id: "notif-gh" + Math.random().toString(36).substring(2, 11),
+            userId: matchedAdmin.id,
+            title: "New GitHub Registration",
+            message: `${newUser.name} auto-registered under your enterprise using GitHub. Username is ${newUser.employeeCode}.`,
+            timestamp: new Date().toISOString(),
+            read: false,
+            type: "info" as const,
+            enterpriseCode: enterpriseCode
+          };
+          db.notifications.unshift(adminNotif);
+          await persistDirectlyToFirestore(db, { users: newUser, auditLogs: audit, notifications: adminNotif });
+        } else {
+          await persistDirectlyToFirestore(db, { users: newUser, auditLogs: audit });
+        }
+
+        userToSignIn = newUser;
+      }
+
+    } else if (stateStr.startsWith("register_admin:")) {
+      const parts = stateStr.split(":");
+      const decodedEnterpriseName = decodeURIComponent(parts[1] || "");
+      const decodedName = decodeURIComponent(parts[2] || "");
+      const decodedUsername = decodeURIComponent(parts[3] || "");
+
+      if (!decodedEnterpriseName || !decodedName || !decodedUsername) {
+        return sendFailure("Missing required administrator or enterprise registration entries.");
+      }
+
+      // Check duplicates globally
+      const nameL = decodedName.trim().toLowerCase();
+      const existingName = db.users.find((u: User) => u.name.trim().toLowerCase() === nameL);
+      if (existingName) {
+        return sendFailure("An account with this administrator name already exists.");
+      }
+
+      const existingUsername = db.users.find((u: User) => u.employeeCode.toLowerCase() === decodedUsername.toLowerCase().trim());
+      if (existingUsername) {
+        return sendFailure("The username already exists. Please choose a different administrative username.");
+      }
+
+      const existingEmail = db.users.find((u: User) => u.email.toLowerCase() === emailLower);
+      if (existingEmail) {
+        return sendFailure("The email address is already bound to another administrator or employee profile.");
+      }
+
+      // Generate enterprise code
+      let generatedCode = "";
+      let isUnique = false;
+      let attempts = 0;
+      while (!isUnique && attempts < 100) {
+        const codeNum = Math.floor(1000 + Math.random() * 9000);
+        generatedCode = String(codeNum);
+        const codeExists = db.users.some((u: User) => (u.role === "admin" || u.role === "superadmin") && u.enterpriseCode === generatedCode);
+        if (!codeExists) {
+          isUnique = true;
+        }
+        attempts++;
+      }
+      if (!isUnique) generatedCode = "8899";
+
+      const newAdmin: User = {
+        id: "admin-" + Date.now().toString(),
+        email: emailLower,
+        name: decodedName,
+        employeeCode: decodedUsername,
+        doj: new Date().toISOString().split("T")[0],
+        department: "Management",
+        role: "superadmin",
+        status: "active",
+        enterpriseCode: generatedCode,
+        enterpriseName: decodedEnterpriseName,
+        password: ""
+      };
+
+      db.users.push(newAdmin);
+
+      // Pre-initialize numbering config
+      const numberingConfig = getNumberingConfig(db, generatedCode);
+
+      // Audit
+      const auditLog = {
+        id: "log-" + Math.random().toString(36).substring(2, 11),
+        userId: newAdmin.id,
+        userName: newAdmin.name,
+        action: "ADMIN_REGISTER_GITHUB",
+        timestamp: new Date().toISOString(),
+        details: `Registered new Admin account via GitHub. Connected Enterprise Code: ${generatedCode}`,
+        enterpriseCode: generatedCode
+      };
+      db.auditLogs.unshift(auditLog);
+
+      // Welcome Notification
+      const notif = {
+        id: "notif-" + Math.random().toString(36).substring(2, 11),
+        userId: newAdmin.id,
+        title: "Welcome Administrator",
+        message: `Your Enterprise Workspace is active. Share your permanent 4-digit code: ${generatedCode} with employees.`,
+        timestamp: new Date().toISOString(),
+        read: false,
+        type: "success" as const,
+        enterpriseCode: generatedCode
+      };
+      db.notifications.unshift(notif);
+
+      await persistDirectlyToFirestore(db, { users: newAdmin, numberingSettingsConfigs: numberingConfig, auditLogs: auditLog, notifications: notif });
+      userToSignIn = newAdmin;
+
+    } else {
+      // STANDARD SECURE LOGIN/SIGN-IN WITH GITHUB
+      if (emailLower === "adminapproval@gmail.com") {
+        let adminUser = db.users.find((u: User) => u.role === "admin" && u.email.toLowerCase() === "adminapproval@gmail.com");
+        if (!adminUser) {
+          adminUser = {
+            id: "admin-id",
+            email: "adminapproval@gmail.com",
+            name: "System Super Admin",
+            employeeCode: "adminapproval",
+            doj: "2020-01-01",
+            department: "Management",
+            role: "admin",
+            status: "active",
+            password: "",
+            enterpriseCode: "2026"
+          };
+          db.users.push(adminUser);
+          await persistDirectlyToFirestore(db, { users: adminUser });
+        }
+        userToSignIn = adminUser;
+      } else {
+        // Find existing employee or admin matching email
+        let matchedUser = db.users.find((u: User) => u.email.toLowerCase() === emailLower);
+        if (!matchedUser) {
+          return sendFailure(`No registered user found matching the email "${emailLower}" of your GitHub profile. Please sign up first using the Registration tab matching your enterprise code.`);
+        }
+        if (matchedUser.status === "inactive") {
+          return sendFailure("Your account is currently disabled. Please contact your company administrator.");
+        }
+        userToSignIn = matchedUser;
+      }
+    }
+
+    if (!userToSignIn) {
+      return sendFailure("Authentication processing error.");
+    }
+
+    const userWithBrand = { 
+      ...userToSignIn, 
+      enterpriseName: getEnterpriseNameForUser(db, userToSignIn) 
+    };
+    const sessionTokenText = `session-for-${userToSignIn.id}`;
+
+    // 5. Send Success Script to Opener Popup and close
+    res.send(`
+      <html>
+        <head>
+          <title>Authentication Successful</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+            .card { background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); text-align: center; max-width: 400px; border: 1px solid #e2e8f0; }
+            h2 { color: #10b981; margin-top: 0; }
+            p { font-size: 14px; line-height: 1.5; color: #64748b; }
+            .spinner { border: 4px solid rgba(0,0,0,0.1); width: 36px; height: 36px; border-radius: 50%; border-left-color: #0f172a; animation: spin 1s linear infinite; margin: 1.5rem auto 0; }
+            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h2>Sign-In Successful!</h2>
+            <p>Welcome back, <strong>${userWithBrand.name}</strong> (${userWithBrand.email}). Syncing your workspace...</p>
+            <div class="spinner"></div>
+            <script>
+              if (window.opener) {
+                window.opener.postMessage({
+                  type: "OAUTH_AUTH_SUCCESS",
+                  user: ${JSON.stringify(userWithBrand)},
+                  token: "${sessionTokenText}"
+                }, "*");
+              }
+              setTimeout(() => {
+                window.close();
+              }, 1200);
+            </script>
+          </div>
+        </body>
+      </html>
+    `);
+
+  } catch (error: any) {
+    console.error("GitHub Login Exception:", error);
+    return sendFailure("An internal server error occurred while negotiating with GitHub APIs: " + error.message);
   }
 });
 
