@@ -4890,9 +4890,14 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT} in ${process.env.NODE_ENV || "development"} mode`);
-  });
+  if (!process.env.VERCEL) {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT} in ${process.env.NODE_ENV || "development"} mode`);
+    });
+  }
 }
 
 startServer();
+
+export { app };
+export default app;
