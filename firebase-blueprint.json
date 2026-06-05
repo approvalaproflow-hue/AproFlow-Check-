@@ -135,9 +135,48 @@
         "createdBy": { "type": "string", "description": "Personnel username or identifier who initiated file generation" }
       },
       "required": ["id", "requestId", "fileName", "fileContent", "enterpriseCode", "createdAt"]
+    },
+    "EnterpriseSubscription": {
+      "title": "EnterpriseSubscription",
+      "description": "Represents the Razorpay subscription details of an enterprise.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Enterprise ID or Code" },
+        "enterpriseId": { "type": "string", "description": "The 4-digit corporate code" },
+        "plan": { "type": "string", "enum": ["Starter", "Business", "Enterprise"], "description": "The billing plan name" },
+        "subscriptionId": { "type": "string", "description": "Razorpay Subscription ID" },
+        "customerId": { "type": "string", "description": "Razorpay Customer ID" },
+        "paymentId": { "type": "string", "description": "Associated payment transaction ID" },
+        "startDate": { "type": "string", "format": "date-time", "description": "Subscription start datetime" },
+        "renewalDate": { "type": "string", "format": "date-time", "description": "Next billing cycle date" },
+        "status": { "type": "string", "enum": ["authenticated", "active", "cancelled", "expired", "completed", "pending"], "description": "Dynamic subscription state" }
+      },
+      "required": ["id", "enterpriseId", "plan", "status"]
+    },
+    "PaymentEventLog": {
+      "title": "PaymentEventLog",
+      "description": "Persistent record of billing transactions and webhook notifications.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique transaction event record ID" },
+        "enterpriseId": { "type": "string", "description": "Associated enterprise entity identifier" },
+        "subscriptionId": { "type": "string", "description": "Parent subscription reference identifier" },
+        "event": { "type": "string", "description": "Type of webhook category actioned" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "ISO timestamp of transaction" },
+        "payload": { "type": "object", "description": "Full JSON payload details received" }
+      },
+      "required": ["id", "enterpriseId", "subscriptionId", "event", "timestamp"]
     }
   },
   "firestore": {
+    "/enterpriseSubscriptions/{configId}": {
+      "schema": "EnterpriseSubscription",
+      "description": "Corporate billing plan states keyed by corporate code."
+    },
+    "/paymentLogs/{logId}": {
+      "schema": "PaymentEventLog",
+      "description": "Persistent billing history logs keyed by transaction identifier."
+    },
     "/users/{userId}": {
       "schema": "User",
       "description": "Collection of all system users (employees & admins) partitioned by user ID."

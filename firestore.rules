@@ -89,6 +89,21 @@ service cloud.firestore {
         && data.enterpriseCode is string && data.enterpriseCode.size() <= 10;
     }
 
+    function isValidEnterpriseSubscription(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.enterpriseId is string && data.enterpriseId.size() <= 10
+        && data.plan is string && data.plan.size() <= 50
+        && data.status is string && data.status.size() <= 50;
+    }
+
+    function isValidPaymentEventLog(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.enterpriseId is string && data.enterpriseId.size() <= 10
+        && data.subscriptionId is string && data.subscriptionId.size() <= 128
+        && data.event is string && data.event.size() <= 100
+        && data.timestamp is string && data.timestamp.size() <= 50;
+    }
+
     // Collection Security Rules
 
     // 1. Users
@@ -224,6 +239,40 @@ service cloud.firestore {
     match /prod_savedPdfs/{pdfId} {
       allow read: if true;
       allow create, update: if isValidId(pdfId) && isValidSavedPdf(request.resource.data);
+      allow delete: if false;
+    }
+
+    // 9. Enterprise Subscriptions
+    match /enterpriseSubscriptions/{subId} {
+      allow read: if true;
+      allow create, update: if isValidId(subId) && isValidEnterpriseSubscription(request.resource.data);
+      allow delete: if false;
+    }
+    match /dev_enterpriseSubscriptions/{subId} {
+      allow read: if true;
+      allow create, update: if isValidId(subId) && isValidEnterpriseSubscription(request.resource.data);
+      allow delete: if false;
+    }
+    match /prod_enterpriseSubscriptions/{subId} {
+      allow read: if true;
+      allow create, update: if isValidId(subId) && isValidEnterpriseSubscription(request.resource.data);
+      allow delete: if false;
+    }
+
+    // 10. Payment Logs
+    match /paymentLogs/{logId} {
+      allow read: if true;
+      allow create, update: if isValidId(logId) && isValidPaymentEventLog(request.resource.data);
+      allow delete: if false;
+    }
+    match /dev_paymentLogs/{logId} {
+      allow read: if true;
+      allow create, update: if isValidId(logId) && isValidPaymentEventLog(request.resource.data);
+      allow delete: if false;
+    }
+    match /prod_paymentLogs/{logId} {
+      allow read: if true;
+      allow create, update: if isValidId(logId) && isValidPaymentEventLog(request.resource.data);
       allow delete: if false;
     }
   }

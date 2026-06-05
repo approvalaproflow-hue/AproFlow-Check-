@@ -1,6 +1,8 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
+import Razorpay from "razorpay";
 import { fileURLToPath } from "url";
 import { User, RequestForm, AuditLog, Notification, Commission } from "./src/types.ts";
 import { initializeApp } from "firebase/app";
@@ -75,6 +77,41 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+// Interceptor Middleware for Read-Only billing state enforcement
+app.use((req, res, next) => {
+  if (["POST", "PUT", "DELETE"].includes(req.method)) {
+    const p = req.path;
+    // Exempt authentication, billing checkout & setup routes
+    if (
+      p.includes("/api/auth/") ||
+      p.includes("/api/billing/") ||
+      p === "/api/register-admin"
+    ) {
+      return next();
+    }
+
+    try {
+      const user = getUserFromHeaders(req);
+      if (user && user.enterpriseCode) {
+        const db = readDatabase();
+        const sub = db.enterpriseSubscriptions?.find((s: any) => s.enterpriseId === user.enterpriseCode);
+        if (sub) {
+          if (sub.status === "expired" || sub.status === "cancelled" || sub.status === "pending") {
+            return res.status(403).json({
+              error: "Subscription Expired",
+              message: "Your enterprise subscription has expired. Access is Read-Only.",
+              readOnly: true
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Read-Only interceptor check failed:", err);
+    }
+  }
+  next();
+});
 
 const CONFIG_FILE = path.join(process.cwd(), "firebase-applet-config.json");
 const firebaseConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf-8"));
@@ -231,12 +268,40 @@ async function getSavedPdfsFromFirestore(): Promise<any[]> {
   }
 }
 
+async function getEnterpriseSubscriptionsFromFirestore(): Promise<any[]> {
+  try {
+    const querySnapshot = await getDocs(collection(firestoreDb, getCollectionName("enterpriseSubscriptions")));
+    const subs: any[] = [];
+    querySnapshot.forEach((doc) => {
+      subs.push(doc.data());
+    });
+    return subs;
+  } catch (err) {
+    recordSyncError("getEnterpriseSubscriptions", err);
+    return [];
+  }
+}
+
+async function getPaymentLogsFromFirestore(): Promise<any[]> {
+  try {
+    const querySnapshot = await getDocs(collection(firestoreDb, getCollectionName("paymentLogs")));
+    const logs: any[] = [];
+    querySnapshot.forEach((doc) => {
+      logs.push(doc.data());
+    });
+    return logs;
+  } catch (err) {
+    recordSyncError("getPaymentLogs", err);
+    return [];
+  }
+}
+
 async function bootstrapDatabase() {
   if (isBootstrapping) return;
   isBootstrapping = true;
   console.log("Connecting to Firestore to bootstrap database...");
   try {
-    const [users, requests, auditLogs, notifications, numberingSettingsConfigs, commissions, creditCards, savedPdfs] = await Promise.all([
+    const [users, requests, auditLogs, notifications, numberingSettingsConfigs, commissions, creditCards, savedPdfs, enterpriseSubscriptions, paymentLogs] = await Promise.all([
       getUsersFromFirestore(),
       getRequestsFromFirestore(),
       getAuditLogsFromFirestore(),
@@ -244,7 +309,9 @@ async function bootstrapDatabase() {
       getNumberingSettingsConfigsFromFirestore(),
       getCommissionsFromFirestore(),
       getCreditCardsFromFirestore(),
-      getSavedPdfsFromFirestore()
+      getSavedPdfsFromFirestore(),
+      getEnterpriseSubscriptionsFromFirestore(),
+      getPaymentLogsFromFirestore()
     ]);
     
     let mergedUsers = [...users];
@@ -255,6 +322,8 @@ async function bootstrapDatabase() {
     let mergedCommissions = [...commissions];
     let mergedCreditCards = [...creditCards];
     let mergedSavedPdfs = [...savedPdfs];
+    let mergedSubscriptions = [...enterpriseSubscriptions];
+    let mergedPaymentLogs = [...paymentLogs];
 
     lastSavedDb = {
       users: JSON.parse(JSON.stringify(users)),
@@ -264,7 +333,9 @@ async function bootstrapDatabase() {
       numberingSettingsConfigs: JSON.parse(JSON.stringify(numberingSettingsConfigs)),
       commissions: JSON.parse(JSON.stringify(commissions)),
       creditCards: JSON.parse(JSON.stringify(creditCards)),
-      savedPdfs: JSON.parse(JSON.stringify(savedPdfs))
+      savedPdfs: JSON.parse(JSON.stringify(savedPdfs)),
+      enterpriseSubscriptions: JSON.parse(JSON.stringify(enterpriseSubscriptions)),
+      paymentLogs: JSON.parse(JSON.stringify(paymentLogs))
     };
 
     // Read local cache to find and safely merge any newly created/modified records offline
@@ -347,6 +418,24 @@ async function bootstrapDatabase() {
             }
           }
         }
+        if (Array.isArray(localDb.enterpriseSubscriptions)) {
+          for (const ls of localDb.enterpriseSubscriptions) {
+            if (!mergedSubscriptions.find((ms: any) => ms.id === ls.id)) {
+              console.log(`Bootstrapping: merging offline subscription ${ls.id} into Firestore...`);
+              await setDoc(doc(firestoreDb, getCollectionName("enterpriseSubscriptions"), ls.id), ls);
+              mergedSubscriptions.push(ls);
+            }
+          }
+        }
+        if (Array.isArray(localDb.paymentLogs)) {
+          for (const lpl of localDb.paymentLogs) {
+            if (!mergedPaymentLogs.find((mpl: any) => mpl.id === lpl.id)) {
+              console.log(`Bootstrapping: merging offline paymentLog ${lpl.id} into Firestore...`);
+              await setDoc(doc(firestoreDb, getCollectionName("paymentLogs"), lpl.id), lpl);
+              mergedPaymentLogs.push(lpl);
+            }
+          }
+        }
       } catch (err) {
         recordSyncError("BootstrapMergeLocalCache", err);
       }
@@ -375,9 +464,9 @@ async function bootstrapDatabase() {
         }
       }
       console.log("Database seeded successfully to Firestore!");
-      dbInMemory = { ...initialState, commissions: initialState.commissions || [], creditCards: [], savedPdfs: [] };
+      dbInMemory = { ...initialState, commissions: initialState.commissions || [], creditCards: [], savedPdfs: [], enterpriseSubscriptions: [], paymentLogs: [] };
     } else {
-      console.log(`Loaded and synchronized unified Firestore database: ${mergedUsers.length} users, ${mergedRequests.length} requests, ${mergedAuditLogs.length} audit logs, ${mergedNotifications.length} notifications, ${mergedConfigs.length} numbering configs, ${mergedCommissions.length} commissions, ${mergedCreditCards.length} credit cards, ${mergedSavedPdfs.length} saved PDFs.`);
+      console.log(`Loaded and synchronized unified Firestore database: ${mergedUsers.length} users, ${mergedRequests.length} requests, ${mergedAuditLogs.length} audit logs, ${mergedNotifications.length} notifications, ${mergedConfigs.length} numbering configs, ${mergedCommissions.length} commissions, ${mergedCreditCards.length} credit cards, ${mergedSavedPdfs.length} saved PDFs, ${mergedSubscriptions.length} subscriptions, ${mergedPaymentLogs.length} payment logs.`);
       
       dbInMemory = { 
         users: mergedUsers, 
@@ -387,7 +476,9 @@ async function bootstrapDatabase() {
         numberingSettingsConfigs: mergedConfigs, 
         commissions: mergedCommissions,
         creditCards: mergedCreditCards,
-        savedPdfs: mergedSavedPdfs
+        savedPdfs: mergedSavedPdfs,
+        enterpriseSubscriptions: mergedSubscriptions,
+        paymentLogs: mergedPaymentLogs
       };
     }
     isDbLoadedFromFirestore = true;
@@ -416,6 +507,12 @@ async function bootstrapDatabase() {
     }
     if (!dbInMemory.savedPdfs) {
       dbInMemory.savedPdfs = [];
+    }
+    if (!dbInMemory.enterpriseSubscriptions) {
+      dbInMemory.enterpriseSubscriptions = [];
+    }
+    if (!dbInMemory.paymentLogs) {
+      dbInMemory.paymentLogs = [];
     }
     lastSavedDb = JSON.parse(JSON.stringify(dbInMemory));
     isDbLoadedFromFirestore = false;
@@ -647,6 +744,52 @@ function setupRealtimeSync() {
     console.error("Real-time sync error for savedPdfs:", err);
   });
   activeUnsubscribeFns.push(unsubSavedPdfs);
+
+  // Sync enterpriseSubscriptions
+  const unsubSubscriptions = onSnapshot(collection(firestoreDb, getCollectionName("enterpriseSubscriptions")), (snapshot) => {
+    if (!dbInMemory || !isDbLoadedFromFirestore || isSyncingToFirestore) return;
+    const subs: any[] = [];
+    snapshot.forEach((doc) => {
+      subs.push(doc.data());
+    });
+    if (!compareCollections(dbInMemory.enterpriseSubscriptions, subs)) {
+      console.log(`Real-time sync: enterpriseSubscriptions updated. Synced ${subs.length} records.`);
+      dbInMemory.enterpriseSubscriptions = subs;
+      if (!lastSavedDb) lastSavedDb = {};
+      lastSavedDb.enterpriseSubscriptions = JSON.parse(JSON.stringify(subs));
+      try {
+        fs.writeFileSync(PERSIST_FILE, JSON.stringify(dbInMemory, null, 2), "utf-8");
+      } catch (err) {
+        console.error("Failed to write to local-db-persist on enterpriseSubscriptions sync:", err);
+      }
+    }
+  }, (err) => {
+    console.error("Real-time sync error for enterpriseSubscriptions:", err);
+  });
+  activeUnsubscribeFns.push(unsubSubscriptions);
+
+  // Sync paymentLogs
+  const unsubPaymentLogs = onSnapshot(collection(firestoreDb, getCollectionName("paymentLogs")), (snapshot) => {
+    if (!dbInMemory || !isDbLoadedFromFirestore || isSyncingToFirestore) return;
+    const logs: any[] = [];
+    snapshot.forEach((doc) => {
+      logs.push(doc.data());
+    });
+    if (!compareCollections(dbInMemory.paymentLogs, logs)) {
+      console.log(`Real-time sync: paymentLogs updated. Synced ${logs.length} records.`);
+      dbInMemory.paymentLogs = logs;
+      if (!lastSavedDb) lastSavedDb = {};
+      lastSavedDb.paymentLogs = JSON.parse(JSON.stringify(logs));
+      try {
+        fs.writeFileSync(PERSIST_FILE, JSON.stringify(dbInMemory, null, 2), "utf-8");
+      } catch (err) {
+        console.error("Failed to write to local-db-persist on paymentLogs sync:", err);
+      }
+    }
+  }, (err) => {
+    console.error("Real-time sync error for paymentLogs:", err);
+  });
+  activeUnsubscribeFns.push(unsubPaymentLogs);
 }
 
 async function saveCollectionsToFirestore(data: any) {
@@ -669,6 +812,12 @@ async function saveCollectionsToFirestore(data: any) {
       }
       if (data.savedPdfs) {
         for (const p of data.savedPdfs) await setDoc(doc(firestoreDb, getCollectionName("savedPdfs"), p.id), p);
+      }
+      if (data.enterpriseSubscriptions) {
+        for (const s of data.enterpriseSubscriptions) await setDoc(doc(firestoreDb, getCollectionName("enterpriseSubscriptions"), s.id), s);
+      }
+      if (data.paymentLogs) {
+        for (const l of data.paymentLogs) await setDoc(doc(firestoreDb, getCollectionName("paymentLogs"), l.id), l);
       }
       lastSavedDb = JSON.parse(JSON.stringify(data));
       return;
@@ -738,6 +887,24 @@ async function saveCollectionsToFirestore(data: any) {
         }
       }
     }
+    // Find added/updated enterprise subscriptions
+    if (data.enterpriseSubscriptions) {
+      for (const s of data.enterpriseSubscriptions) {
+        const prev = lastSavedDb.enterpriseSubscriptions ? lastSavedDb.enterpriseSubscriptions.find((ps: any) => ps.id === s.id) : null;
+        if (!prev || JSON.stringify(prev) !== JSON.stringify(s)) {
+          await setDoc(doc(firestoreDb, getCollectionName("enterpriseSubscriptions"), s.id), s);
+        }
+      }
+    }
+    // Find added/updated payment logs
+    if (data.paymentLogs) {
+      for (const l of data.paymentLogs) {
+        const prev = lastSavedDb.paymentLogs ? lastSavedDb.paymentLogs.find((pl: any) => pl.id === l.id) : null;
+        if (!prev || JSON.stringify(prev) !== JSON.stringify(l)) {
+          await setDoc(doc(firestoreDb, getCollectionName("paymentLogs"), l.id), l);
+        }
+      }
+    }
 
     lastSavedDb = JSON.parse(JSON.stringify(data));
   } finally {
@@ -754,6 +921,12 @@ function readDatabase() {
   }
   if (!dbInMemory.creditCards) {
     dbInMemory.creditCards = [];
+  }
+  if (!dbInMemory.enterpriseSubscriptions) {
+    dbInMemory.enterpriseSubscriptions = [];
+  }
+  if (!dbInMemory.paymentLogs) {
+    dbInMemory.paymentLogs = [];
   }
   if (!isDbLoadedFromFirestore && !isBootstrapping) {
     console.log("Database read requested but Firestore is not loaded. Triggering self-healing bootstrap in background...");
@@ -794,6 +967,8 @@ async function persistDirectlyToFirestore(db: any, updates: {
   creditCards?: any | any[];
   savedPdfs?: any | any[];
   users?: any | any[];
+  enterpriseSubscriptions?: any | any[];
+  paymentLogs?: any | any[];
 }, deletions?: {
   requests?: string | string[];
   auditLogs?: string | string[];
@@ -803,6 +978,8 @@ async function persistDirectlyToFirestore(db: any, updates: {
   creditCards?: string | string[];
   savedPdfs?: string | string[];
   users?: string | string[];
+  enterpriseSubscriptions?: string | string[];
+  paymentLogs?: string | string[];
 }) {
   // Save locally synchronously first
   try {
@@ -821,7 +998,9 @@ async function persistDirectlyToFirestore(db: any, updates: {
     commissions: "commissions",
     creditCards: "creditCards",
     savedPdfs: "savedPdfs",
-    users: "users"
+    users: "users",
+    enterpriseSubscriptions: "enterpriseSubscriptions",
+    paymentLogs: "paymentLogs"
   };
 
   // Process updates/creations
@@ -1101,7 +1280,18 @@ function getInitialState() {
     }
   ];
 
-  return { users, requests, auditLogs, notifications, numberingSettingsConfigs: [], commissions: [], creditCards: [], savedPdfs: [] };
+  return { 
+    users, 
+    requests, 
+    auditLogs, 
+    notifications, 
+    numberingSettingsConfigs: [], 
+    commissions: [], 
+    creditCards: [], 
+    savedPdfs: [], 
+    enterpriseSubscriptions: [], 
+    paymentLogs: [] 
+  };
 }
 
 // Middleware to extract authenticated enterprise user from security headers
@@ -1298,6 +1488,425 @@ app.get("/api/auth/verify-enterprise", (req, res) => {
     departments
   });
 });
+
+// --- RAZORPAY BILLING INTEGRATION ---
+
+// Lazy initializer for Razorpay SDK with safety checks and Demo Fallback
+function getRazorpayInstance(): Razorpay | null {
+  const keyId = process.env.RAZORPAY_KEY_ID;
+  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  if (!keyId || !keySecret || keyId === "rzp_test_placeholder_key_id" || keySecret === "placeholder_key_secret_key") {
+    return null;
+  }
+  return new Razorpay({
+    key_id: keyId,
+    key_secret: keySecret
+  });
+}
+
+// Pricing plan amount lookups
+const PLAN_COSTS: Record<string, number> = {
+  Starter: 999,
+  Business: 4999,
+  Enterprise: 19999
+};
+
+// GET /api/billing/config
+app.get("/api/billing/config", (req, res) => {
+  const keyId = process.env.RAZORPAY_KEY_ID;
+  const isDemo = !keyId || keyId === "rzp_test_placeholder_key_id";
+  res.json({
+    keyId: isDemo ? "rzp_test_demo_mode" : keyId,
+    isDemo,
+    plans: [
+      { name: "Starter", price: 999, description: "Small teams and individual developers." },
+      { name: "Business", price: 4999, description: "Growing businesses requiring compliance and voucher triggers." },
+      { name: "Enterprise", price: 19999, description: "Large scale operations requiring premium dedicated support." }
+    ]
+  });
+});
+
+// GET /api/billing/status
+app.get("/api/billing/status", (req, res) => {
+  const user = getUserFromHeaders(req);
+  if (!user || !user.enterpriseCode) {
+    return res.status(401).json({ error: "Access Denied. Invalid session headers." });
+  }
+
+  const db = readDatabase();
+  const subscription = db.enterpriseSubscriptions?.find((s: any) => s.enterpriseId === user.enterpriseCode);
+
+  if (!subscription) {
+    return res.json({
+      enterpriseId: user.enterpriseCode,
+      plan: "Free",
+      status: "active",
+      message: "Standard evaluation trial active."
+    });
+  }
+
+  res.json(subscription);
+});
+
+// POST /api/billing/create-subscription
+app.post("/api/billing/create-subscription", async (req, res) => {
+  const user = getUserFromHeaders(req);
+  if (!user || !user.enterpriseCode) {
+    return res.status(401).json({ error: "Access Denied. You must be signed in to upgrade plans." });
+  }
+
+  const { plan } = req.body;
+  if (!plan || !PLAN_COSTS[plan]) {
+    return res.status(400).json({ error: "Invalid pricing plan selected." });
+  }
+
+  const amount = PLAN_COSTS[plan];
+  const rzp = getRazorpayInstance();
+
+  if (!rzp) {
+    // Demo Mode: Mock Sandbox Simulation
+    console.log(`[Billing Sandbox] Generating mock subscription for plan ${plan} and enterprise ${user.enterpriseCode}`);
+    const mockSubId = `sub_mock_${crypto.randomBytes(6).toString("hex")}`;
+    const mockCustId = `cust_mock_${crypto.randomBytes(6).toString("hex")}`;
+    
+    return res.json({
+      isDemo: true,
+      subscriptionId: mockSubId,
+      customerId: mockCustId,
+      amount: amount,
+      planName: plan,
+      enterpriseId: user.enterpriseCode
+    });
+  }
+
+  try {
+    // 1. Create or retrieve plan in Razorpay
+    const dynamicPlan = await rzp.plans.create({
+      period: "monthly",
+      interval: 1,
+      item: {
+        name: `APROFLOW ${plan} Subscription`,
+        amount: amount * 100, // Razorpay amount is in paise
+        currency: "INR",
+        description: `Premium monthly access for APROFLOW workspace.`
+      }
+    });
+
+    // 2. Create Razorpay Subscription
+    const subscription = await rzp.subscriptions.create({
+      plan_id: dynamicPlan.id,
+      total_count: 12, // 1 year of recurring cycles
+      quantity: 1,
+      customer_notify: 1,
+      notes: {
+        enterpriseId: user.enterpriseCode,
+        planName: plan
+      }
+    });
+
+    res.json({
+      isDemo: false,
+      subscriptionId: subscription.id,
+      customerId: subscription.customer_id || "",
+      amount: amount,
+      planName: plan,
+      enterpriseId: user.enterpriseCode
+    });
+  } catch (err: any) {
+    console.error("Razorpay subscription creation failed:", err);
+    res.status(500).json({ error: "Failed to create Razorpay checkout reference. Verification: " + err.message });
+  }
+});
+
+// POST /api/billing/verify-payment
+app.post("/api/billing/verify-payment", async (req, res) => {
+  const user = getUserFromHeaders(req);
+  if (!user || !user.enterpriseCode) {
+    return res.status(401).json({ error: "Access Denied." });
+  }
+
+  const { subscriptionId, paymentId, signature, plan, isDemo, customerId } = req.body;
+
+  if (!subscriptionId || !plan) {
+    return res.status(400).json({ error: "Missing required payment parameters." });
+  }
+
+  const db = readDatabase();
+  const nowStr = new Date().toISOString();
+  const renewalDate = new Date();
+  renewalDate.setMonth(renewalDate.getMonth() + 1);
+
+  if (isDemo || !getRazorpayInstance()) {
+    // Sandbox Payment Verification Simulation
+    console.log("[Billing Sandbox] Simulating payment verification for " + subscriptionId);
+    
+    const mockSub = {
+      id: user.enterpriseCode,
+      enterpriseId: user.enterpriseCode,
+      plan: plan,
+      subscriptionId: subscriptionId,
+      customerId: customerId || `cust_mock_${crypto.randomBytes(6).toString("hex")}`,
+      paymentId: paymentId || `pay_mock_${crypto.randomBytes(6).toString("hex")}`,
+      startDate: nowStr,
+      renewalDate: renewalDate.toISOString(),
+      status: "active"
+    };
+
+    const mockLog = {
+      id: `log_mock_${crypto.randomBytes(8).toString("hex")}`,
+      enterpriseId: user.enterpriseCode,
+      subscriptionId: subscriptionId,
+      event: "payment.captured",
+      timestamp: nowStr,
+      payload: { ...req.body, status: "captured", source: "Mock Payment Checkout" }
+    };
+
+    // Store in Firestore
+    const subscriptions = [...(db.enterpriseSubscriptions || [])];
+    const logs = [...(db.paymentLogs || [])];
+
+    const existingIdx = subscriptions.findIndex((s: any) => s.enterpriseId === user.enterpriseCode);
+    if (existingIdx >= 0) {
+      subscriptions[existingIdx] = mockSub;
+    } else {
+      subscriptions.push(mockSub);
+    }
+    logs.push(mockLog);
+
+    db.enterpriseSubscriptions = subscriptions;
+    db.paymentLogs = logs;
+
+    await persistDirectlyToFirestore(db, {
+      enterpriseSubscriptions: mockSub,
+      paymentLogs: mockLog
+    });
+
+    return res.json({ success: true, message: "Sandbox payment simulated and processed successfully!", subscription: mockSub });
+  }
+
+  // Real Razorpay signature validation inside try-catch block
+  const secret = process.env.RAZORPAY_KEY_SECRET;
+  const expectedSignature = crypto
+    .createHmac("sha256", secret || "")
+    .update(paymentId + "|" + subscriptionId)
+    .digest("hex");
+
+  if (expectedSignature !== signature) {
+    return res.status(400).json({ error: "Invalid Razorpay payment signature. Processing aborted." });
+  }
+
+  try {
+    const realSub = {
+      id: user.enterpriseCode,
+      enterpriseId: user.enterpriseCode,
+      plan: plan,
+      subscriptionId: subscriptionId,
+      customerId: customerId || "",
+      paymentId: paymentId || "",
+      startDate: nowStr,
+      renewalDate: renewalDate.toISOString(),
+      status: "active"
+    };
+
+    const realLog = {
+      id: `log_${crypto.randomBytes(8).toString("hex")}`,
+      enterpriseId: user.enterpriseCode,
+      subscriptionId: subscriptionId,
+      event: "subscription.charged",
+      timestamp: nowStr,
+      payload: { ...req.body, source: "Secure Razorpay Web Checkout Integration" }
+    };
+
+    // Store in Firestore
+    const subscriptions = [...(db.enterpriseSubscriptions || [])];
+    const logs = [...(db.paymentLogs || [])];
+
+    const existingIdx = subscriptions.findIndex((s: any) => s.enterpriseId === user.enterpriseCode);
+    if (existingIdx >= 0) {
+      subscriptions[existingIdx] = realSub;
+    } else {
+      subscriptions.push(realSub);
+    }
+    logs.push(realLog);
+
+    db.enterpriseSubscriptions = subscriptions;
+    db.paymentLogs = logs;
+
+    await persistDirectlyToFirestore(db, {
+      enterpriseSubscriptions: realSub,
+      paymentLogs: realLog
+    });
+
+    res.json({ success: true, message: "Razorpay payment verified & subscription active!", subscription: realSub });
+  } catch (err: any) {
+    console.error("Failed to commit subscription in Firestore:", err);
+    res.status(500).json({ error: "Payment was success, but failing to save record: " + err.message });
+  }
+});
+
+// POST /api/billing/webhook
+// Razorpay webhook updates payment state dynamically
+app.post("/api/billing/webhook", async (req, res) => {
+  const signature = req.headers["x-razorpay-signature"] as string;
+  const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+
+  if (webhookSecret && signature) {
+    // Validate webhook signature authenticity
+    const bodyStr = JSON.stringify(req.body);
+    const expectedSignature = crypto
+      .createHmac("sha256", webhookSecret)
+      .update(bodyStr)
+      .digest("hex");
+
+    if (expectedSignature !== signature) {
+      console.warn("[Webhook Warn] Received invalid webhook signature verification fail.");
+      return res.status(400).json({ error: "Webhook signature verification failed." });
+    }
+  }
+
+  const payload = req.body;
+  const event = payload.event;
+  console.log(`[Razorpay Webhook] Received payment event action: ${event}`);
+
+  const db = readDatabase();
+  const paymentLogs = [...(db.paymentLogs || [])];
+  const subscriptions = [...(db.enterpriseSubscriptions || [])];
+
+  const nowStr = new Date().toISOString();
+  let enterpriseId = "unknown";
+  let subscriptionId = "unknown";
+
+  // Inspect payload model for enterprise mapping
+  const subEntity = payload.payload?.subscription?.entity || payload.payload?.payment?.entity;
+  if (subEntity) {
+    subscriptionId = subEntity.id || subscriptionId;
+    if (subEntity.notes && subEntity.notes.enterpriseId) {
+      enterpriseId = subEntity.notes.enterpriseId;
+    }
+  }
+
+  // If we couldn't resolve enterprise ID via notes, try searching database by subscription ID
+  if (enterpriseId === "unknown" && subscriptionId !== "unknown") {
+    const matchedSub = subscriptions.find((s: any) => s.subscriptionId === subscriptionId);
+    if (matchedSub) {
+      enterpriseId = matchedSub.enterpriseId;
+    }
+  }
+
+  // Generate unique log ID
+  const logId = `webhook_${crypto.randomBytes(8).toString("hex")}`;
+  const logRecord = {
+    id: logId,
+    enterpriseId,
+    subscriptionId,
+    event,
+    timestamp: nowStr,
+    payload
+  };
+
+  paymentLogs.push(logRecord);
+  db.paymentLogs = paymentLogs;
+
+  const updatesPayload: any = { paymentLogs: logRecord };
+
+  // Parse events (activation, billing, compliance blocks)
+  if (enterpriseId !== "unknown") {
+    let subRecord = subscriptions.find((s: any) => s.enterpriseId === enterpriseId);
+
+    if (!subRecord) {
+      // Create new record
+      subRecord = {
+        id: enterpriseId,
+        enterpriseId,
+        plan: subEntity?.notes?.planName || "Starter",
+        subscriptionId,
+        customerId: subEntity?.customer_id || "",
+        paymentId: subEntity?.payment_id || "",
+        startDate: nowStr,
+        renewalDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        status: "active"
+      };
+      subscriptions.push(subRecord);
+    }
+
+    if (event === "subscription.activated" || event === "subscription.charged" || event === "payment.captured") {
+      subRecord.status = "active";
+      subRecord.renewalDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    } else if (event === "subscription.halted" || event === "subscription.cancelled" || event === "subscription.expired") {
+      subRecord.status = "expired";
+    }
+
+    db.enterpriseSubscriptions = subscriptions;
+    updatesPayload.enterpriseSubscriptions = subRecord;
+  }
+
+  try {
+    await persistDirectlyToFirestore(db, updatesPayload);
+    res.json({ received: true });
+  } catch (err) {
+    console.error("Webhook Firestore persist error:", err);
+    res.status(500).json({ error: "Failed to persist webhook details." });
+  }
+});
+
+// POST /api/billing/trigger-expire
+// Simulates an instant plan expiration of the active enterprise for sandbox layout preview testing
+app.post("/api/billing/trigger-expire", async (req, res) => {
+  const user = getUserFromHeaders(req);
+  if (!user || !user.enterpriseCode) {
+    return res.status(401).json({ error: "Access Denied." });
+  }
+
+  const db = readDatabase();
+  const subscriptions = [...(db.enterpriseSubscriptions || [])];
+  
+  let subRecord = subscriptions.find((s: any) => s.enterpriseId === user.enterpriseCode);
+
+  if (!subRecord) {
+    subRecord = {
+      id: user.enterpriseCode,
+      enterpriseId: user.enterpriseCode,
+      plan: "Starter",
+      subscriptionId: "sub_manual_expiry_testing",
+      customerId: "cust_manual_expiry_testing",
+      paymentId: "pay_manual_expiry_testing",
+      startDate: new Date().toISOString(),
+      renewalDate: new Date().toISOString(),
+      status: "expired"
+    };
+    subscriptions.push(subRecord);
+  } else {
+    subRecord.status = "expired";
+  }
+
+  const logRecord = {
+    id: `log_expiry_${crypto.randomBytes(8).toString("hex")}`,
+    enterpriseId: user.enterpriseCode,
+    subscriptionId: subRecord.subscriptionId,
+    event: "subscription.expired",
+    timestamp: new Date().toISOString(),
+    payload: { action: "manual_expiry_simulation_triggered_by_admin" }
+  };
+
+  const logs = [...(db.paymentLogs || [])];
+  logs.push(logRecord);
+
+  db.enterpriseSubscriptions = subscriptions;
+  db.paymentLogs = logs;
+
+  await persistDirectlyToFirestore(db, {
+    enterpriseSubscriptions: subRecord,
+    paymentLogs: logRecord
+  });
+
+  res.json({
+    success: true,
+    message: "Subscription successfully set to 'expired'. The workspace has transitioned to Read Only mode.",
+    subscription: subRecord
+  });
+});
+
+// --- END RAZORPAY BILLING INTEGRATION ---
 
 app.post("/api/auth/signup", async (req, res) => {
   const db = readDatabase();

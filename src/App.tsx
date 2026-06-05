@@ -19,6 +19,7 @@ import { InteractiveAmount } from "./components/InteractiveAmount";
 import { AdvancedReports } from "./components/AdvancedReports";
 import { SampleCollectionForm } from "./components/SampleCollectionForm";
 import { AproflowLogo } from "./components/AproflowLogo";
+import { SubscriptionBilling } from "./components/SubscriptionBilling";
 import { AnimatePresence } from "motion/react";
 import { SplashLoader } from "./components/SplashLoader";
 import { customFetch } from "./utils/customFetch";
@@ -391,7 +392,7 @@ export function App() {
   const [linkingSuccessMsg, setLinkingSuccessMsg] = useState("");
 
   // Navigation / View Tabs
-  const [currentPage, setCurrentPage] = useState<"dashboard" | "requests" | "new-request" | "cash-voucher" | "employees" | "audit-logs" | "numbering-settings" | "centralized-records" | "commissions" | "advanced-reports">("dashboard");
+  const [currentPage, setCurrentPage] = useState<"dashboard" | "requests" | "new-request" | "cash-voucher" | "employees" | "audit-logs" | "numbering-settings" | "centralized-records" | "commissions" | "advanced-reports" | "pricing">("dashboard");
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
   // Commission States
@@ -7412,6 +7413,14 @@ export function App() {
                     <Settings className="h-4 w-4 text-slate-400" />
                     <span>Numbering Settings</span>
                   </button>
+
+                  <button
+                    onClick={() => setCurrentPage("pricing")}
+                    className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${currentPage === "pricing" ? "bg-slate-800 text-white shadow-inner" : "text-slate-400 hover:text-white hover:bg-slate-800/50"}`}
+                  >
+                    <Coins className="h-4 w-4 text-amber-500" />
+                    <span>Subscription Billing</span>
+                  </button>
                 </>
               )}
 
@@ -11393,6 +11402,17 @@ export function App() {
                     </div>
                   </div>
                 </div>
+              )}
+
+              {/* PAGE 6.8: RAZORPAY SUBSCRIPTION BILLING & PRICING */}
+              {currentPage === "pricing" && currentUser && (
+                <SubscriptionBilling
+                  currentUser={currentUser}
+                  apiHeaders={apiHeaders}
+                  onRefreshUser={() => {
+                    if (typeof fetchDashboardMetrics === "function") fetchDashboardMetrics();
+                  }}
+                />
               )}
 
               {/* PAGE 6.5: CORPORATE CREDIT CARDS MASTER (ADMIN SPECIFIC) */}
