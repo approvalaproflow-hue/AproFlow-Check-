@@ -7,7 +7,13 @@ export const customFetch = (input: RequestInfo | URL, init?: RequestInit): Promi
     }
 
     // Direct known static-only environments to the live Cloud Run backend container
-    const isStaticHost = window.location.hostname.endsWith(".github.io");
+    const isStaticHost = 
+      window.location.hostname.endsWith(".github.io") || 
+      window.location.hostname.endsWith(".netlify.app") || 
+      window.location.hostname.endsWith(".vercel.app") ||
+      window.location.hostname.includes("netlify") ||
+      window.location.hostname.includes("vercel") ||
+      window.location.hostname.includes("github");
     if (isStaticHost) {
       const backendUrl = "https://ais-pre-uqgotynwpn7qsbyjr4rsar-880186503088.asia-southeast1.run.app";
       const targetUrl = `${backendUrl}${input}`;
