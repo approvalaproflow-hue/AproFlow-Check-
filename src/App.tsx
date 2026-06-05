@@ -19,7 +19,6 @@ import { InteractiveAmount } from "./components/InteractiveAmount";
 import { AdvancedReports } from "./components/AdvancedReports";
 import { SampleCollectionForm } from "./components/SampleCollectionForm";
 import { AproflowLogo } from "./components/AproflowLogo";
-import { SubscriptionBilling } from "./components/SubscriptionBilling";
 import { AnimatePresence } from "motion/react";
 import { SplashLoader } from "./components/SplashLoader";
 import { customFetch } from "./utils/customFetch";
@@ -392,7 +391,7 @@ export function App() {
   const [linkingSuccessMsg, setLinkingSuccessMsg] = useState("");
 
   // Navigation / View Tabs
-  const [currentPage, setCurrentPage] = useState<"dashboard" | "requests" | "new-request" | "cash-voucher" | "employees" | "audit-logs" | "numbering-settings" | "centralized-records" | "commissions" | "advanced-reports" | "pricing">("dashboard");
+  const [currentPage, setCurrentPage] = useState<"dashboard" | "requests" | "new-request" | "cash-voucher" | "employees" | "audit-logs" | "numbering-settings" | "centralized-records" | "commissions" | "advanced-reports">("dashboard");
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
   // Commission States
@@ -1872,7 +1871,14 @@ export function App() {
         body: JSON.stringify({ email: loginEmail, password: loginPassword })
       });
 
-      const data = await resp.json();
+      let data: any;
+      try {
+        data = await resp.json();
+      } catch (parseErr) {
+        setAppError(`Server returned non-JSON response (Status ${resp.status}: ${resp.statusText || "Error"}).`);
+        return;
+      }
+
       if (!resp.ok) {
         setAppError(data.error || "Login credentials unauthorized");
         return;
@@ -1886,8 +1892,9 @@ export function App() {
       setLoginEmail("");
       setLoginPassword("");
       setCurrentPage("dashboard");
-    } catch (err) {
-      setAppError("Platform connection offline. Failed to authenticate.");
+    } catch (err: any) {
+      console.error("Login verification network/runtime error:", err);
+      setAppError(`Platform connection error: ${err.message || err || "Failed to authenticate."}`);
     } finally {
       setLoading(false);
     }
@@ -1904,7 +1911,16 @@ export function App() {
     setEnterpriseVerifyError("");
     try {
       const resp = await fetch(`/api/auth/verify-enterprise?code=${trimmed}`);
-      const data = await resp.json();
+      
+      let data: any;
+      try {
+        data = await resp.json();
+      } catch (parseErr) {
+        setEnterpriseVerifyError(`Server returned non-JSON response (Status ${resp.status}: ${resp.statusText || "Error"}).`);
+        setIsEnterpriseVerified(false);
+        return;
+      }
+
       if (!resp.ok) {
         setEnterpriseVerifyError(data.error || "The enterprise code is invalid or currently inactive.");
         setIsEnterpriseVerified(false);
@@ -1915,8 +1931,9 @@ export function App() {
         setEnterpriseCustomDepartments(data.departments || []);
         setRegDepartment("IT");
       }
-    } catch (err) {
-      setEnterpriseVerifyError("Database offline. Unable to verify Enterprise Code.");
+    } catch (err: any) {
+      console.error("Enterprise code validation error:", err);
+      setEnterpriseVerifyError(`Enterprise Code check failed: ${err.message || err || "Database offline."}`);
       setIsEnterpriseVerified(false);
     } finally {
       setVerifyingEnterprise(false);
@@ -1972,7 +1989,14 @@ export function App() {
         })
       });
 
-      const data = await resp.json();
+      let data: any;
+      try {
+        data = await resp.json();
+      } catch (parseErr) {
+        setAppError(`Server returned non-JSON response (Status ${resp.status}: ${resp.statusText || "Error"}).`);
+        return;
+      }
+
       if (!resp.ok) {
         setAppError(data.error || "Failed completion of worker register setup");
         return;
@@ -2005,8 +2029,9 @@ export function App() {
       setEnterpriseVerifyError("");
       setVerifiedEnterpriseName("");
       setEnterpriseCustomDepartments([]);
-    } catch (err) {
-      setAppError("Failed to dispatch onboarding submission to database");
+    } catch (err: any) {
+      console.error("Onboarding submission error:", err);
+      setAppError(`Onboarding connection failed: ${err.message || err || "Failed to dispatch onboarding submission to database"}`);
     } finally {
       setLoading(false);
     }
@@ -2037,7 +2062,14 @@ export function App() {
         })
       });
 
-      const resData = await resp.json();
+      let resData: any;
+      try {
+        resData = await resp.json();
+      } catch (parseErr) {
+        setAppError(`Server returned non-JSON response (Status ${resp.status}: ${resp.statusText || "Error"}).`);
+        return;
+      }
+
       if (!resp.ok) {
         setAppError(resData.error || "Failed to register new Administrator");
         return;
@@ -2059,8 +2091,9 @@ export function App() {
       setAuthTab("login");
       
       setCurrentPage("dashboard");
-    } catch (err) {
-      setAppError("Server connect error. Failed to dispatch admin registration.");
+    } catch (err: any) {
+      console.error("Admin registration network error:", err);
+      setAppError(`Admin registration connect failed: ${err.message || err || "Server connect error."}`);
     } finally {
       setLoading(false);
     }
@@ -7413,14 +7446,6 @@ export function App() {
                     <Settings className="h-4 w-4 text-slate-400" />
                     <span>Numbering Settings</span>
                   </button>
-
-                  <button
-                    onClick={() => setCurrentPage("pricing")}
-                    className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${currentPage === "pricing" ? "bg-slate-800 text-white shadow-inner" : "text-slate-400 hover:text-white hover:bg-slate-800/50"}`}
-                  >
-                    <Coins className="h-4 w-4 text-amber-500" />
-                    <span>Subscription Billing</span>
-                  </button>
                 </>
               )}
 
@@ -11402,17 +11427,6 @@ export function App() {
                     </div>
                   </div>
                 </div>
-              )}
-
-              {/* PAGE 6.8: RAZORPAY SUBSCRIPTION BILLING & PRICING */}
-              {currentPage === "pricing" && currentUser && (
-                <SubscriptionBilling
-                  currentUser={currentUser}
-                  apiHeaders={apiHeaders}
-                  onRefreshUser={() => {
-                    if (typeof fetchDashboardMetrics === "function") fetchDashboardMetrics();
-                  }}
-                />
               )}
 
               {/* PAGE 6.5: CORPORATE CREDIT CARDS MASTER (ADMIN SPECIFIC) */}
